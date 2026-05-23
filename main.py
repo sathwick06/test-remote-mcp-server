@@ -26,6 +26,8 @@ init_db()
 @mcp.tool()
 def add_expenses(date, amount, category, subcategory="", note=""):
     """Add a new expense entry to the database."""
+    category = category.lower().strip()        
+    subcategory = subcategory.lower().strip()
     with sqlite3.connect(DB_PATH) as c:
         cur = c.execute(
             "INSERT INTO expenses(date, amount, category, subcategory, note) VALUES (?, ?, ?, ?, ?)",
@@ -49,25 +51,22 @@ def list_expenses(start_date,end_date):
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 @mcp.tool()
-def summarize_expenses(start_date, end_date, category=None):
-    """Summarize total expenses by category within an inclusive date range."""
+def summarize_expenses(start_date: str, end_date: str, category: str = None):
+    """Summarize total expenses grouped by category for a date range (YYYY-MM-DD).
+    Optionally filter to a single category."""
     with sqlite3.connect(DB_PATH) as c:
-        cur = c.execute(
-            """SELECT category, SUM(amount) as total_amount
-            FROM expenses
-            WHERE date BETWEEN ? AND ?
-            """,
-        )
+        query = """SELECT category, SUM(amount) as total_amount
+                   FROM expenses
+                   WHERE date BETWEEN ? AND ?"""
         params = [start_date, end_date]
 
         if category:
-            query += " AND category = ?"
+            query += " AND LOWER(category) = LOWER(?)"
             params.append(category)
 
-        query += " GROUP BY category ORDER BY category ASC" 
-
+        query += " GROUP BY category ORDER BY category ASC"
         cur = c.execute(query, params)
-        cols=[d[0] for d in cur.description]
+        cols = [d[0] for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 @mcp.resource("expense://categories", mime_type="application/json")
@@ -90,10 +89,10 @@ def edit_expenses(id, date=None, amount=None, category=None, subcategory=None, n
             params.append(amount)
         if category is not None:
             fields.append("category = ?")
-            params.append(category)
+            params.append(category.lower().strip())
         if subcategory is not None:
             fields.append("subcategory = ?")
-            params.append(subcategory)
+            params.append(subcategory.lower().strip())
         if note is not None:
             fields.append("note = ?")
             params.append(note)
@@ -104,9 +103,9 @@ def edit_expenses(id, date=None, amount=None, category=None, subcategory=None, n
         params.append(id)
         query = f"UPDATE expenses SET {', '.join(fields)} WHERE id = ?"
         c.execute(query, params)
+        if c.rowcount == 0:
+            return {"status": "error", "message": f"No expense found with id {id}"}
         return {"status": "ok", "id": id}
-
-
-# Start the server
+    
 if __name__ == "__main__":
-    mcp.run(transport="http", host="0.0.0.0", port=8000)
+    mcp.run()
